@@ -160,6 +160,18 @@ def get_model(log):
     return _model
 
 
+def decode_audio(path):
+    """16 kHz mono float32 audio via the bundled FFmpeg (avoids PyAV version issues)."""
+    import numpy as np
+    r = subprocess.run([ffmpeg_bin("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error",
+                        "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+                       capture_output=True, stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
+    if r.returncode != 0:
+        raise RuntimeError(f"Can't read audio of {Path(path).name}:\n"
+                           + r.stderr.decode("utf-8", "replace")[-800:])
+    return np.frombuffer(r.stdout, dtype=np.float32).copy()
+
+
 def transcribe(path, cache_dir, log, progress=None):
     cache = cache_dir / (path.name + ".json")
     if cache.exists():
@@ -168,7 +180,8 @@ def transcribe(path, cache_dir, log, progress=None):
         except (ValueError, OSError):
             pass
     model = get_model(log)
-    segments, info = model.transcribe(str(path), language="en", word_timestamps=True,
+    audio = decode_audio(path)
+    segments, info = model.transcribe(audio, language="en", word_timestamps=True,
                                       condition_on_previous_text=False, beam_size=5)
     words = []
     for seg in segments:

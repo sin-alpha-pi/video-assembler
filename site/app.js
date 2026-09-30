@@ -1,5 +1,4 @@
 // Dialogue Assembler — browser version of dialogue_assemble.py
-import { FFmpeg } from './vendor/ffmpeg/index.js';
 
 const $ = (id) => document.getElementById(id);
 const VIDEO_EXT = ['.mp4', '.mov', '.m4v', '.mkv', '.avi', '.webm'];
@@ -278,6 +277,12 @@ function transcribe(model, audio) {
 async function getFFmpeg() {
   if (state.ffmpeg) return state.ffmpeg;
   status('Loading FFmpeg...');
+  let FFmpeg;
+  try {
+    ({ FFmpeg } = await import('./vendor/ffmpeg/index.js'));
+  } catch {
+    throw new Error('FFmpeg files are missing. In the GitHub repo, set Settings > Pages > Source to "GitHub Actions" and re-run the deploy.');
+  }
   const ff = new FFmpeg();
   ff.on('log', ({ message }) => { state.logBuf.push(message); });
   const base = new URL('./vendor/', location.href).href;

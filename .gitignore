@@ -1,0 +1,6 @@
+app/build/
+app/dist/
+app/models/
+app/ffmpeg/
+app/*.spec
+__pycache__/

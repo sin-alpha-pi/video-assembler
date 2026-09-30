@@ -1,0 +1,103 @@
+name: Build Windows app
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/build-windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python packages
+        run: pip install "faster-whisper>=1.1,<2" pyinstaller
+
+      - name: Download FFmpeg
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip" -OutFile ff.zip
+          Expand-Archive ff.zip -DestinationPath ffx
+          New-Item -ItemType Directory app/ffmpeg -Force | Out-Null
+          Copy-Item ffx/*/bin/* app/ffmpeg/
+          Get-ChildItem app/ffmpeg
+
+      - name: Download Whisper model (small.en)
+        run: python -c "from faster_whisper import download_model; print(download_model('small.en', output_dir='app/models/small.en'))"
+
+      - name: Build exe
+        working-directory: app
+        run: pyinstaller --noconfirm --windowed --name DialogueAssembler --collect-all faster_whisper --collect-all ctranslate2 --add-data "models;models" --add-binary "ffmpeg/*;ffmpeg" gui.py
+
+      - name: Make spoken test clips
+        shell: powershell
+        run: |
+          $ff = "$PWD\app\ffmpeg\ffmpeg.exe"
+          New-Item -ItemType Directory selftest -Force | Out-Null
+          Set-Location selftest
+          Add-Type -AssemblyName System.Speech
+          $lines = @{
+            m1 = "So, what happened with the doctor?"
+            m2 = "Okay. So what sounds realistic to you?"
+            h1 = "You were right. I was tested, and I do have sleep apnea."
+            h2 = "I'd like to find out more about the dental device."
+          }
+          foreach ($k in $lines.Keys) {
+            $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+            $s.SetOutputToWaveFile("$PWD\$k.wav")
+            $s.Speak($lines[$k])
+            $s.Dispose()
+          }
+          # mentor clip has its lines in reverse order to test reordering
+          & $ff -y -loglevel error -f lavfi -i "color=c=navy:s=640x360:r=25" -i m2.wav -i m1.wav -filter_complex "[1:a]adelay=700:all=1,apad=pad_dur=1.5[x];[2:a]apad=pad_dur=1.2[y];[x][y]concat=n=2:v=0:a=1[a]" -map 0:v -map "[a]" -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac mentor_1.mp4
+          & $ff -y -loglevel error -f lavfi -i "color=c=darkgreen:s=640x360:r=25" -i h1.wav -i h2.wav -filter_complex "[1:a]adelay=900:all=1,apad=pad_dur=1.5[x];[2:a]apad=pad_dur=1.2[y];[x][y]concat=n=2:v=0:a=1[a]" -map 0:v -map "[a]" -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac husband_1.mp4
+          & $ff -y -loglevel error -f lavfi -i "color=c=black:s=640x360:r=25:d=3" -f lavfi -i "sine=f=200:d=3" -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac intro.mp4
+          & $ff -y -loglevel error -f lavfi -i "color=c=gray:s=640x360:r=25:d=4" -f lavfi -i "sine=f=200:d=4" -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac background.mp4
+          & $ff -y -loglevel error -f lavfi -i "sine=f=900:d=2" background.mp3
+          & $ff -y -loglevel error -f lavfi -i "anoisesrc=d=0.6:a=0.3" transition.mp3
+          Remove-Item *.wav
+          @"
+          Test script
+          [intro.mp4]
+          [left]
+          [background.mp4 + background.mp3]
+          [left]
+          Mentor: So, what happened with the doctor?
+          Husband: You were right. I was tested, and I do have sleep apnea.
+          [left]
+          Mentor: Okay. So what sounds realistic to you?
+          Husband: I'd like to find out more about the dental device.
+          "@ | Set-Content -Encoding UTF8 script.txt
+          Get-ChildItem
+
+      - name: Self-test the built exe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "app/dist/DialogueAssembler/DialogueAssembler.exe" -ArgumentList "--selftest", "$PWD\selftest", "$PWD\result.txt" -Wait -PassThru
+          Get-Content result.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+          if (-not (Test-Path selftest/selftest_assembled.mp4)) { exit 1 }
+
+      - name: Zip
+        working-directory: app/dist
+        run: 7z a -tzip ../../DialogueAssembler-windows.zip DialogueAssembler
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.${{ github.run_number }}
+          name: Dialogue Assembler (build ${{ github.run_number }})
+          make_latest: true
+          files: DialogueAssembler-windows.zip
+          body: |
+            **Windows app.** Download `DialogueAssembler-windows.zip`, unzip it, open the `DialogueAssembler` folder and double-click `DialogueAssembler.exe`.
+            If Windows shows "Windows protected your PC", click **More info** → **Run anyway** (the app isn't code-signed).

@@ -25,7 +25,12 @@ jobs:
       - name: Download FFmpeg
         shell: pwsh
         run: |
-          Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip" -OutFile ff.zip
+          # version numbers in the file names change over time, so look up the current stable one
+          $rel = Invoke-RestMethod "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest" -Headers @{ Authorization = "Bearer ${{ github.token }}" }
+          $asset = $rel.assets | Where-Object { $_.name -match '^ffmpeg-n[\d.]+-latest-win64-gpl-shared-[\d.]+\.zip$' } | Sort-Object name | Select-Object -First 1
+          if (-not $asset) { $asset = $rel.assets | Where-Object { $_.name -eq 'ffmpeg-master-latest-win64-gpl-shared.zip' } }
+          Write-Host "Using $($asset.name)"
+          Invoke-WebRequest $asset.browser_download_url -OutFile ff.zip
           Expand-Archive ff.zip -DestinationPath ffx
           New-Item -ItemType Directory app/ffmpeg -Force | Out-Null
           Copy-Item ffx/*/bin/* app/ffmpeg/

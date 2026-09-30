@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dialogue Assembler</title>
+<script src="coi-serviceworker.js"></script>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e3e1dc;
+    --accent: #2f5bea; --accent-text: #fff; --ok: #1f8a4c; --warn: #b8730a; --bad: #c43232;
+    --code: #f0eee9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151517; --panel: #1f1f22; --text: #ececee; --muted: #9a9aa2; --line: #333338;
+      --accent: #6b8cff; --accent-text: #0d0d10; --ok: #4cc27f; --warn: #e3a34a; --bad: #ff6b6b;
+      --code: #2a2a2e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+           padding: 20px; margin-bottom: 16px; }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 28px 16px; text-align: center;
+          color: var(--muted); transition: border-color .15s, background .15s; }
+  .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .drop strong { color: var(--text); }
+  button, .btn { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+           padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .files { margin-top: 14px; font-size: 14px; }
+  .files div { padding: 2px 0; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 99px; background: var(--code);
+         color: var(--muted); margin-left: 6px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  .settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px 20px; margin-top: 14px; }
+  .settings label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
+  .settings input, .settings select { font: inherit; color: var(--text); background: var(--bg);
+         border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .progress { height: 8px; background: var(--code); border-radius: 99px; overflow: hidden; margin: 12px 0 6px; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #status { font-size: 14px; color: var(--muted); min-height: 21px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  td.num { color: var(--muted); width: 32px; }
+  .src { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); font-weight: 600; }
+  .note { font-size: 13px; margin-top: 2px; }
+  .slide { color: var(--accent); font-weight: 600; }
+  pre { background: var(--code); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 13px; margin: 8px 0; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  #log { max-height: 220px; overflow: auto; white-space: pre-wrap; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+         color: var(--muted); margin-top: 10px; }
+  video { width: 100%; max-height: 70vh; border-radius: 10px; background: #000; margin-top: 12px; }
+  .hidden { display: none; }
+  ul { padding-left: 20px; margin: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dialogue Assembler</h1>
+  <p class="sub">Cuts speaker clips into single lines using the script, puts them in order and adds the transitions.
+    Everything runs in your browser. Your files are never uploaded.</p>
+
+  <section class="panel">
+    <h2>1. Add the files</h2>
+    <div id="drop" class="drop">
+      <p><strong>Drag the whole folder here</strong> (or all files at once)</p>
+      <div class="row" style="justify-content:center">
+        <label class="btn">Choose folder<input id="pickDir" type="file" webkitdirectory multiple hidden></label>
+        <label class="btn">Choose files<input id="pickFiles" type="file" multiple hidden></label>
+      </div>
+    </div>
+    <div id="fileSummary" class="files"></div>
+  </section>
+
+  <section class="panel">
+    <details>
+      <summary>How to name files and tag the script</summary>
+      <ul>
+        <li>One <code>.txt</code> script. Dialogue lines look like <code>Mentor: text</code>. Titles and other text are ignored.</li>
+        <li>Speaker clips have the speaker name in the filename: <code>mentor_1.mp4</code>, <code>husband_2.mp4</code>.</li>
+        <li><code>transition.mp3</code> is the whoosh for every slide.</li>
+        <li>Tags in the script, on their own line or before a line:</li>
+      </ul>
+<pre>[intro.mp4]                          whole clip, muted
+[left]                               slide-left + whoosh into the next item
+[background.mp4 + background.mp3]    whole clip, muted, with the mp3
+[background.mp4 + background.mp3 @1.2]   mp3 starts 1.2 s into the clip
+[left]
+Mentor: So, what happened with the doctor?
+Husband: You were right. ...</pre>
+    </details>
+  </section>
+
+  <section class="panel">
+    <details>
+      <summary>Settings</summary>
+      <div class="settings">
+        <label>Whisper model
+          <select id="set-model">
+            <option value="Xenova/whisper-base.en">base.en (fast, ~150 MB download)</option>
+            <option value="Xenova/whisper-small.en">small.en (more accurate, ~500 MB download)</option>
+            <option value="Xenova/whisper-tiny.en">tiny.en (fastest, least accurate)</option>
+          </select>
+        </label>
+        <label>Slide duration (s)<input id="set-trans" type="number" step="0.05" min="0.1" value="0.5"></label>
+        <label>Whoosh volume (1 = original)<input id="set-whoosh" type="number" step="0.1" min="0" value="1"></label>
+        <label>Default mp3 start after clip start (s)<input id="set-mp3off" type="number" step="0.1" min="0" value="0.3"></label>
+        <label>mp3 volume<input id="set-mp3vol" type="number" step="0.1" min="0" value="1"></label>
+        <label>Padding around each line (s)<input id="set-pad" type="number" step="0.05" min="0" value="0.15"></label>
+        <label>Silence threshold (dB, -30 noisy / -40 quiet)<input id="set-silence" type="number" step="1" value="-35"></label>
+        <label>Minimum match (%)<input id="set-minmatch" type="number" step="1" min="30" max="100" value="70"></label>
+        <label>Output quality (CRF, lower = better)<input id="set-crf" type="number" step="1" min="14" max="30" value="20"></label>
+        <label>Encoding speed
+          <select id="set-preset">
+            <option value="ultrafast">ultrafast (bigger file)</option>
+            <option value="veryfast" selected>veryfast</option>
+            <option value="medium">medium (slow in browser)</option>
+          </select>
+        </label>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2>2. Analyze</h2>
+    <p class="sub" style="margin:0 0 12px">Transcribes the clips and finds every script line. The first run downloads the Whisper model; later runs reuse it and the saved transcripts.</p>
+    <div class="row">
+      <button id="btnAnalyze" class="primary" disabled>Analyze</button>
+      <button id="btnRender" class="primary" disabled>Render video</button>
+      <button id="btnCutlist" disabled>Download cut list</button>
+    </div>
+    <div class="progress"><div id="bar"></div></div>
+    <div id="status">Add files to start.</div>
+    <div id="cutlist"></div>
+    <div id="result" class="hidden">
+      <video id="preview" controls></video>
+      <p><a id="download" class="btn" download>Download video</a></p>
+    </div>
+    <details style="margin-top:14px"><summary style="font-weight:400;color:var(--muted)">Technical log</summary><div id="log"></div></details>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

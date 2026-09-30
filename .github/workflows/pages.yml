@@ -1,0 +1,41 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch FFmpeg (browser version)
+        run: |
+          npm install --no-save @ffmpeg/ffmpeg@0.12 @ffmpeg/core@0.12 @ffmpeg/core-mt@0.12
+          mkdir -p site/vendor/ffmpeg site/vendor/core site/vendor/core-mt
+          cp -r node_modules/@ffmpeg/ffmpeg/dist/esm/* site/vendor/ffmpeg/
+          cp node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.* site/vendor/core/
+          cp node_modules/@ffmpeg/core-mt/dist/esm/ffmpeg-core.* site/vendor/core-mt/
+          ls -la site/vendor/*
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -221,9 +221,62 @@ def selftest(folder, result_file):
         return 1
 
 
+def demo(folder, shot_dir):
+    """Opens the real window, clicks Analyze and Render, saves screenshots (used by the build)."""
+    from PIL import ImageGrab
+    shot_dir = Path(shot_dir)
+    shot_dir.mkdir(parents=True, exist_ok=True)
+    root = tk.Tk()
+    try:
+        ttk.Style().theme_use("vista")
+    except tk.TclError:
+        pass
+    app = App(root, folder)
+    root.geometry("900x640+20+20")
+    root.attributes("-topmost", True)
+    result = {"code": 1}
+
+    def shot(name):
+        root.update()
+        x, y = root.winfo_rootx(), root.winfo_rooty()
+        ImageGrab.grab(bbox=(x - 8, y - 32, x + root.winfo_width() + 8, y + root.winfo_height() + 8),
+                       all_screens=True).save(shot_dir / f"{name}.png")
+
+    def wait_idle(then):
+        if app.busy:
+            root.after(500, lambda: wait_idle(then))
+        else:
+            then()
+
+    def step1():
+        shot("1_start")
+        app.analyze()
+        root.after(3000, lambda: (shot("2_analyzing"), wait_idle(step2)))
+
+    def step2():
+        shot("3_cut_list")
+        if not (app.plan and app.plan.ok):
+            root.destroy()
+            return
+        app.render()
+        root.after(4000, lambda: (shot("4_rendering"), wait_idle(step3)))
+
+    def step3():
+        shot("5_done")
+        result["code"] = 0 if core.output_path(folder).exists() else 1
+        root.destroy()
+
+    root.after(2000, step1)
+    root.after(900000, root.destroy)  # safety stop after 15 min
+    root.mainloop()
+    return result["code"]
+
+
 def main():
     if len(sys.argv) >= 4 and sys.argv[1] == "--selftest":
         sys.exit(selftest(sys.argv[2], sys.argv[3]))
+    if len(sys.argv) >= 4 and sys.argv[1] == "--demo":
+        sys.exit(demo(sys.argv[2], sys.argv[3]))
     root = tk.Tk()
     try:
         ttk.Style().theme_use("vista" if os.name == "nt" else "clam")

@@ -20,7 +20,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python packages
-        run: pip install "faster-whisper>=1.1,<2" pyinstaller
+        run: pip install "faster-whisper>=1.1,<2" pyinstaller pillow
 
       - name: Download FFmpeg
         shell: pwsh
@@ -41,7 +41,7 @@ jobs:
 
       - name: Build exe
         working-directory: app
-        run: pyinstaller --noconfirm --windowed --name DialogueAssembler --collect-all faster_whisper --collect-all ctranslate2 --add-data "models;models" --add-binary "ffmpeg/*;ffmpeg" gui.py
+        run: pyinstaller --noconfirm --windowed --name DialogueAssembler --collect-all faster_whisper --collect-all ctranslate2 --hidden-import PIL.ImageGrab --add-data "models;models" --add-binary "ffmpeg/*;ffmpeg" gui.py
 
       - name: Make spoken test clips
         shell: powershell
@@ -92,6 +92,24 @@ jobs:
           if ($p.ExitCode -ne 0) { exit 1 }
           if (-not (Test-Path selftest/selftest_assembled.mp4)) { exit 1 }
 
+      - name: Screenshots of the app window
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Remove-Item selftest/selftest_assembled.mp4, selftest/cut_list.txt -ErrorAction SilentlyContinue
+          Remove-Item selftest/_transcripts -Recurse -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath "app/dist/DialogueAssembler/DialogueAssembler.exe" -ArgumentList "--demo", "$PWD\selftest", "$PWD\screenshots" -Wait -PassThru
+          Write-Host "Demo exit code: $($p.ExitCode)"
+          Get-ChildItem screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/*.png
+          if-no-files-found: warn
+
       - name: Zip
         working-directory: app/dist
         run: 7z a -tzip ../../DialogueAssembler-windows.zip DialogueAssembler
@@ -102,7 +120,9 @@ jobs:
           tag_name: v1.${{ github.run_number }}
           name: Dialogue Assembler (build ${{ github.run_number }})
           make_latest: true
-          files: DialogueAssembler-windows.zip
+          files: |
+            DialogueAssembler-windows.zip
+            screenshots/*.png
           body: |
             **Windows app.** Download `DialogueAssembler-windows.zip`, unzip it, open the `DialogueAssembler` folder and double-click `DialogueAssembler.exe`.
             If Windows shows "Windows protected your PC", click **More info** → **Run anyway** (the app isn't code-signed).

@@ -140,12 +140,12 @@ def parse_script(path, mp3_offset):
         if not line:
             continue                            # blank lines keep the current speaker
         # "Name: text"  or  "Name:" on its own line followed by the text lines
-        m = re.match(r"^([A-Za-z][\w .'-]{0,30}):\s*(.*)$", line)
+        m = re.match(r"^([A-Za-z][\w'-]*(?: [\w'-]+){0,2}):\s*(.*)$", line)  # name = max 3 words
         if m:
             current, line = m.group(1).strip().capitalize(), m.group(2).strip()  # "mentor" = "Mentor"
             if not line:
                 continue
-        elif current and not re.search("[.?!\u2026\"'\u201d\u2019)]$", line):
+        elif current and not re.search("[.?!:;,\u2026\"'\u201d\u2019)]$", line):
             current = None                      # heading (no end punctuation) ends the block
             continue
         if current:

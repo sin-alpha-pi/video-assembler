@@ -116,7 +116,7 @@ def norm_words(text):
 
 # ---------------------------------------------------------------- script ----
 def parse_script(path):
-    items, pending_left = [], False
+    items, pending_left, current = [], False, None
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         while True:
@@ -136,10 +136,20 @@ def parse_script(path):
                           "offset": float(off.group(1)) if off else MP3_OFFSET,
                           "left": pending_left})
             pending_left = False
-        m = re.match(r"^([A-Za-z][\w .'-]{0,30}):\s*(.+)$", line)
+            current = None                      # a clip ends the speaker's block
+        if not line:
+            continue                            # blank lines keep the current speaker
+        # "Name: text"  or  "Name:" on its own line followed by the text lines
+        m = re.match(r"^([A-Za-z][\w .'-]{0,30}):\s*(.*)$", line)
         if m:
-            items.append({"type": "line", "speaker": m.group(1).strip(),
-                          "text": m.group(2).strip(), "left": pending_left})
+            current, line = m.group(1).strip().capitalize(), m.group(2).strip()  # "mentor" = "Mentor"
+            if not line:
+                continue
+        elif current and not re.search("[.?!\u2026\"'\u201d\u2019)]$", line):
+            current = None                      # heading (no end punctuation) ends the block
+            continue
+        if current:
+            items.append({"type": "line", "speaker": current, "text": line, "left": pending_left})
             pending_left = False
     return items
 

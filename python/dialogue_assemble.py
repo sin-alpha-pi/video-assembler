@@ -298,19 +298,10 @@ def assemble(segments, whoosh, output):
 
 
 # ---------------------------------------------------------------- main ------
-def main():
-    ap = argparse.ArgumentParser(description="Cut and assemble dialogue clips from a script.")
-    ap.add_argument("folder", type=Path)
-    ap.add_argument("-s", "--script", type=Path, help="script file (default: the .txt in the folder)")
-    ap.add_argument("-o", "--output", type=Path)
-    ap.add_argument("--dry-run", action="store_true", help="show the cut list, render nothing")
-    args = ap.parse_args()
-    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-        sys.exit("FFmpeg not found. Install it and make sure 'ffmpeg' works in a terminal.")
-
-    folder = args.folder.resolve()
-    output = (args.output or folder / f"{folder.name}_assembled.mp4").resolve()
-    script = args.script
+def build_plan(folder, script=None, output=None):
+    """Transcribe, match the script and return (segments, whoosh). Exits if lines are missing."""
+    folder = Path(folder).resolve()
+    output = Path(output or folder / f"{folder.name}_assembled.mp4").resolve()
     if not script:
         txts = [f for f in folder.glob("*.txt") if f.name != "cut_list.txt"]
         if len(txts) != 1:
@@ -412,6 +403,21 @@ def main():
     if problems:
         print(f"\n{problems} line(s) not found. Check the cut list; nothing rendered.")
         sys.exit(1)
+    return segments, whoosh
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Cut and assemble dialogue clips from a script.")
+    ap.add_argument("folder", type=Path)
+    ap.add_argument("-s", "--script", type=Path, help="script file (default: the .txt in the folder)")
+    ap.add_argument("-o", "--output", type=Path)
+    ap.add_argument("--dry-run", action="store_true", help="show the cut list, render nothing")
+    args = ap.parse_args()
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        sys.exit("FFmpeg not found. Install it and make sure 'ffmpeg' works in a terminal.")
+    folder = args.folder.resolve()
+    output = (args.output or folder / f"{folder.name}_assembled.mp4").resolve()
+    segments, whoosh = build_plan(folder, args.script, output)
     if args.dry_run:
         return
 
